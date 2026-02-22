@@ -1,12 +1,15 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect,UploadFile, File, Form
 from formats import *
 from pydantic import ValidationError
 import uvicorn,os,json
 from contextlib import asynccontextmanager
 from genome import GenomeChecker, Experiments
 from langsmith.client import Client
-import secrets, asyncio
+from langchain_core.documents import Document
+import secrets, asyncio, base64
 import pandas as pd
+from io import BytesIO
+import PyPDF2
 from dotenv import load_dotenv
 load_dotenv("config.env")
 
@@ -18,7 +21,9 @@ async def lifespan(app: FastAPI):
     api_key = os.getenv('ALPHAGENOME_KEY')
     app.checker = GenomeChecker(api_key)
     langchain = Client(api_url="https://eu.api.smith.langchain.com")
-    app.prompt = langchain.pull_prompt("chrisahn99/irendil_hackeurope:ed079576",include_model=True,secrets={"GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY")})
+    app.prompt = langchain.pull_prompt("chrisahn99/irendil_hackeurope",include_model=True,secrets={"GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY")})
+    app.prompt_pdf = langchain.pull_prompt("jeanpierre/stool_image_analysis",include_model=True,secrets={"GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY")}
+)
 
 
     yield
@@ -38,6 +43,18 @@ VALID_TOKEN = os.getenv('VALID_TOKEN')
 @app.get("/")
 def read_root():
     return {"message": "Irendil API"}
+
+@app.post("/pdf_loading")
+async def pdf_loading(file: UploadFile = File(...),token: str = Form(...)):
+    if token != VALID_TOKEN:
+        return {"error": "Token invalide"}
+
+    content = await file.read()
+    pdf_reader = PyPDF2.PdfReader(BytesIO(content))
+    text = "\n".join(page.extract_text() for page in pdf_reader.pages if page.extract_text())
+    prompt_value = app.prompt_pdf.invoke({"stool_file": text,"list_of_bacterias":list(app.checker.knowledge['bacteria'])})
+    result = json.loads(prompt_value.content.replace("None","null"))
+    return {"analysis": result}
 
 @app.websocket("/ws/stool_analysis")
 async def experiments_ws(websocket: WebSocket):
@@ -89,11 +106,12 @@ async def experiments_ws(websocket: WebSocket):
                     output_line = {"bacteria":line['bacteria'],"target_gene":line['target_gene'],"metabolite":line["metabolite"],
                         "activation_hypothesis":line["activation_hypothesis"],"bacteria_abundance":stool[line['bacteria']]}
                     await websocket.send_json({"task":"start_exp","data":output_line})
+                    await asyncio.sleep(0.01)
             await asyncio.sleep(0.01) 
             await websocket.send_json({"task":"start_clinical_insight"})
             await asyncio.sleep(0.01) 
             prompt_value = app.prompt.invoke({"patient_id": 1, "microbial_data_json":outputs})
-            clean_data = json.loads(prompt_value.content)
+            clean_data = json.loads(prompt_value.content,strict=False)
             await websocket.send_json({"task":"end_clinical_insight","data":clean_data})
         
         else:

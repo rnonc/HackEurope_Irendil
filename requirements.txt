@@ -8,3 +8,5 @@ python-dotenv
 langsmith
 langchain_core
 langchain_google_genai
+python-multipart
+PyPDF2
