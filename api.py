@@ -53,7 +53,7 @@ async def pdf_loading(file: UploadFile = File(...),token: str = Form(...)):
     pdf_reader = PyPDF2.PdfReader(BytesIO(content))
     text = "\n".join(page.extract_text() for page in pdf_reader.pages if page.extract_text())
     prompt_value = app.prompt_pdf.invoke({"stool_file": text,"list_of_bacterias":list(app.checker.knowledge['bacteria'])})
-    result = json.loads(prompt_value.content.replace("None","null"))
+    result = json.loads(prompt_value.content.replace('```json','').replace('```','').replace("None","null"))
     return {"analysis": result}
 
 @app.websocket("/ws/stool_analysis")
