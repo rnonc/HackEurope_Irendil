@@ -1,9 +1,10 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from formats import *
 from pydantic import ValidationError
-import uvicorn,os
+import uvicorn,os,json
 from contextlib import asynccontextmanager
 from genome import GenomeChecker, Experiments
+from langsmith.client import Client
 import secrets, asyncio
 import pandas as pd
 from dotenv import load_dotenv
@@ -16,6 +17,9 @@ __version__ = "v1.0"
 async def lifespan(app: FastAPI):
     api_key = os.getenv('ALPHAGENOME_KEY')
     app.checker = GenomeChecker(api_key)
+    langchain = Client(api_url="https://eu.api.smith.langchain.com")
+    app.prompt = langchain.pull_prompt("chrisahn99/irendil_hackeurope:ed079576",include_model=True,secrets={"GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY")})
+
 
     yield
 
@@ -87,11 +91,13 @@ async def experiments_ws(websocket: WebSocket):
                     await websocket.send_json({"task":"start_exp","data":output_line})
             await asyncio.sleep(0.01) 
             await websocket.send_json({"task":"start_clinical_insight"})
-
-            await websocket.send_json({"task":"end_clinical_insight","data":None})
+            await asyncio.sleep(0.01) 
+            prompt_value = app.prompt.invoke({"patient_id": 1, "microbial_data_json":outputs})
+            clean_data = json.loads(prompt_value.content)
+            await websocket.send_json({"task":"end_clinical_insight","data":clean_data})
         
         else:
-            await websocket.send_json({"task":"end_clinical_insight","data":None})
+            await websocket.send_json({"error":"no relevant experience"})
         
 
     except WebSocketDisconnect:

@@ -5,3 +5,6 @@ numpy
 websockets
 alphagenome
 python-dotenv
+langsmith
+langchain_core
+langchain_google_genai
